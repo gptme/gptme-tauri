@@ -6,8 +6,7 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    //TODO: launch the gptme-webui server
-    //TODO: navigate to the gptme-webui server
+    // TODO: launch the gptme-server 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
