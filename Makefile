@@ -7,8 +7,8 @@ dev: prebuild
 %/.git:
 	git submodule update --init --recursive
 
-# TODO: add icon generation
-# src-tauri/icons/icon.png:
+src-tauri/icons/icon.png:
+	npm run tauri icon "./public/logo.png"
 
 gptme-webui/dist: gptme-webui/.git
 	cd gptme-webui && npm run build
