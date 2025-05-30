@@ -11,7 +11,8 @@ src-tauri/icons/icon.png:
 	npm run tauri icon "./public/logo.png"
 
 gptme-webui/dist: gptme-webui/.git
-	cd gptme-webui && npm run build
+	# TODO: probably a better way to do this
+	npm i && cd gptme-webui && npm i && npm run build
 
 prebuild: gptme-webui/dist src-tauri/icons/icon.png
 
