@@ -1,3 +1,6 @@
 [submodule "gptme-webui"]
 	path = gptme-webui
 	url = https://github.com/gptme/gptme-webui.git
+[submodule "gptme"]
+	path = gptme
+	url = https://github.com/gptme/gptme
