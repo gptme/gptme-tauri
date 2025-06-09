@@ -14,7 +14,12 @@ gptme-webui/dist: gptme-webui/.git
 	# TODO: probably a better way to do this
 	npm i && cd gptme-webui && npm i && npm run build
 
-prebuild: gptme-webui/dist src-tauri/icons/icon.png
+gptme-server-build: bins
+	# appends a platform-specific suffix, required by tauri 
+	mkdir -p bins
+	cd gptme && make build-server-exe && mv dist/gptme-server ../bins/gptme-server-$$(rustc -Vv | grep host | cut -f2 -d' ')
+
+prebuild: gptme-webui/dist src-tauri/icons/icon.png bins
 
 precommit: format check
 

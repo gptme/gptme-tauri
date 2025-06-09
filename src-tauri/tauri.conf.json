@@ -7,7 +7,7 @@
     "beforeDevCommand": "cd gptme-webui && npm run dev",
     "devUrl": "http://localhost:5701",
     "beforeBuildCommand": "cd gptme-webui && npm run build",
-    "frontendDist": "../webui/dist"
+    "frontendDist": "../gptme-webui/dist"
   },
   "app": {
     "windows": [
@@ -30,6 +30,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["../bins/gptme-server"]
   }
 }
