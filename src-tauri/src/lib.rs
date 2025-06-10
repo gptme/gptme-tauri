@@ -12,8 +12,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
-        .setup(|app|{
-            let sidecar_command = app.shell().sidecar("gptme-server").unwrap().args(["--cors-origin", "tauri://localhost"]);
+        .setup(|app| {
+            let sidecar_command = app
+                .shell()
+                .sidecar("gptme-server")
+                .unwrap()
+                .args(["--cors-origin", "tauri://localhost"]);
             sidecar_command.spawn().unwrap();
             Ok(())
         })
