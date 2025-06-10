@@ -25,3 +25,4 @@ dist-ssr
 
 src-tauri/icons/*
 bins
+gptme/build
