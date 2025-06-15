@@ -1,5 +1,7 @@
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
-use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -29,13 +31,26 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
+            // Store child process reference for cleanup
+            let child_process: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+            let child_for_cleanup = child_process.clone();
+
             // Spawn gptme-server with output capture
             tauri::async_runtime::spawn(async move {
+                // Determine CORS origin based on build mode
+                let cors_origin = if cfg!(debug_assertions) {
+                    "http://localhost:5701" // Dev mode
+                } else {
+                    "tauri://localhost" // Production mode
+                };
+
+                log::info!("Starting gptme-server with CORS origin: {}", cors_origin);
+
                 let sidecar_command = app_handle
                     .shell()
                     .sidecar("gptme-server")
                     .unwrap()
-                    .args(["--cors-origin", "tauri://localhost"]);
+                    .args(["--cors-origin", cors_origin]);
 
                 match sidecar_command.spawn() {
                     Ok((mut rx, child)) => {
@@ -43,6 +58,11 @@ pub fn run() {
                             "gptme-server started successfully with PID: {}",
                             child.pid()
                         );
+
+                        // Store child process reference
+                        if let Ok(mut child_ref) = child_process.lock() {
+                            *child_ref = Some(child);
+                        }
 
                         // Handle server output
                         tauri::async_runtime::spawn(async move {
@@ -80,9 +100,6 @@ pub fn run() {
                                 }
                             }
                         });
-
-                        // The child process termination is handled through the event stream above
-                        // No need to explicitly wait here since CommandEvent::Terminated will fire
                     }
                     Err(e) => {
                         log::error!("Failed to start gptme-server: {}", e);
@@ -90,7 +107,28 @@ pub fn run() {
                 }
             });
 
+            // Store child process reference in app state for cleanup
+            app.manage(child_for_cleanup);
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Handle window close event to cleanup server
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                log::info!("Window close requested, cleaning up gptme-server...");
+
+                {
+                    let child_ref = window.state::<Arc<Mutex<Option<CommandChild>>>>().clone();
+                    if let Ok(mut child) = child_ref.lock() {
+                        if let Some(process) = child.take() {
+                            match process.kill() {
+                                Ok(_) => log::info!("gptme-server process terminated successfully"),
+                                Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
+                            }
+                        }
+                    };
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
