@@ -36,7 +36,7 @@ jobs:
           libjavascriptcoregtk-4.1-dev=2.44.0-2 \
           gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
           gir1.2-webkit2-4.1=2.44.0-2;
-          
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
 
@@ -50,7 +50,7 @@ jobs:
         with:
           node-version: 'lts/*'
           cache: 'npm'
-          
+
       - name: Python setup
         uses: actions/setup-python@v4
         with:
@@ -63,7 +63,7 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-          
+
       - name: Install Poetry
         run: |
             curl -sSL https://install.python-poetry.org | python3 -

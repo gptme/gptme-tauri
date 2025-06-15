@@ -1,0 +1,53 @@
+repos:
+  # General hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+
+  # Rust formatting and linting
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        name: Rust format
+        files: ^src-tauri/
+        args: ['--manifest-path', 'src-tauri/Cargo.toml', '--all']
+        pass_filenames: false
+      - id: cargo-check
+        name: Rust check
+        files: ^src-tauri/
+        args: ['--manifest-path', 'src-tauri/Cargo.toml']
+        pass_filenames: false
+      - id: clippy
+        name: Rust clippy
+        files: ^src-tauri/
+        args: ['--manifest-path', 'src-tauri/Cargo.toml', '--', '-D', 'warnings']
+        pass_filenames: false
+
+  # TypeScript/JavaScript formatting
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        files: \.(js|ts|tsx|json|css|md)$
+        exclude: ^(gptme|gptme-webui)/
+
+  # Additional TypeScript checking (if you want to add it later)
+  # - repo: https://github.com/pre-commit/mirrors-eslint
+  #   rev: v9.0.0
+  #   hooks:
+  #     - id: eslint
+  #       files: \.(js|ts|tsx)$
+  #       exclude: ^(gptme|gptme-webui)/
+  #       additional_dependencies:
+  #         - eslint@^8.0.0
+  #         - '@typescript-eslint/eslint-plugin@^6.0.0'
+  #         - '@typescript-eslint/parser@^6.0.0'
