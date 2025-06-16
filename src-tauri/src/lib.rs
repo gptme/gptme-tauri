@@ -5,7 +5,8 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
 };
 use tauri_plugin_log::{Target, TargetKind};
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_shell::ShellExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
 
@@ -43,9 +44,9 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
-            // Store child process reference for cleanup
-            let child_process: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
-            let child_for_cleanup = child_process.clone();
+            // Store child process PID for cleanup
+            let child_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+            let child_pid_for_cleanup = child_pid.clone();
 
             // Spawn gptme-server with output capture
             tauri::async_runtime::spawn(async move {
@@ -101,9 +102,9 @@ pub fn run() {
                             child.pid()
                         );
 
-                        // Store child process reference
-                        if let Ok(mut child_ref) = child_process.lock() {
-                            *child_ref = Some(child);
+                        // Store child process PID
+                        if let Ok(mut pid_ref) = child_pid.lock() {
+                            *pid_ref = Some(child.pid());
                         }
 
                         // Handle server output
@@ -149,8 +150,8 @@ pub fn run() {
                 }
             });
 
-            // Store child process reference in app state for cleanup
-            app.manage(child_for_cleanup);
+            // Store child process PID in app state for cleanup
+            app.manage(child_pid_for_cleanup);
 
             Ok(())
         })
