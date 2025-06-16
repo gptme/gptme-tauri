@@ -1,11 +1,16 @@
-# From: https://tauri.app/v1/guides/building/cross-platform
-
 name: Release
+
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Enable code signing'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   release:
@@ -16,48 +21,53 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            arch: 'aarch64'
+          #- platform: 'macos-latest'
+          #  args: '--target x86_64-apple-darwin'
+          #  arch: 'x86_64'
           - platform: 'ubuntu-24.04'
+            args: ''
+            arch: 'x86_64'
+
     runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-24.04'
-        # You can remove libayatana-appindicator3-dev if you don't use the system tray feature.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libappindicator3-dev librsvg2-dev patchelf
-          sudo apt install -y \
-          libwebkit2gtk-4.1-0=2.44.0-2 \
-          libwebkit2gtk-4.1-dev=2.44.0-2 \
-          libjavascriptcoregtk-4.1-0=2.44.0-2 \
-          libjavascriptcoregtk-4.1-dev=2.44.0-2 \
-          gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
-          gir1.2-webkit2-4.1=2.44.0-2;
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Rust setup
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # Only add targets on macOS since we're cross-compiling
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Sync node version and setup cache
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
 
-      - name: Python setup
-        uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Python cache
-        uses: actions/cache@v3
+      - name: Setup Python cache
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -66,24 +76,64 @@ jobs:
 
       - name: Install Poetry
         run: |
-            curl -sSL https://install.python-poetry.org | python3 -
-            export PATH="$HOME/.local/bin:$PATH"
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install node dependencies
+      - name: Install frontend dependencies
         run: npm install
 
       - name: Prebuild
         run: make prebuild
 
+      # macOS code signing setup
+      - name: Import Apple Developer Certificate (macOS)
+        if: matrix.platform == 'macos-latest' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.sign == 'true')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Check if we have the required secrets
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "Warning: Apple signing certificates not available. Building without code signing."
+            exit 0
+          fi
+
+          # Create the certificate from the secret
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+
+          # Create a new keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+
+          # Import certificate to keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+          # Find and set the signing identity
+          CERT_INFO=$(security find-identity -v -p codesigning build.keychain | head -n 1)
+          SIGNING_IDENTITY=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
+          echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> $GITHUB_ENV
+          echo "Certificate imported successfully. Signing identity: $SIGNING_IDENTITY"
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          # macOS notarization (optional)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }} # This only works if your workflow triggers on new tags.
-          releaseName: 'aw-tauri v__VERSION__' # tauri-action replaces \_\_VERSION\_\_ with the app version.
-          releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: true
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && 'gptme-tauri v__VERSION__' || '' }}
+          releaseBody: ${{ startsWith(github.ref, 'refs/tags/') && 'See the assets to download and install this version.' || '' }}
+          releaseDraft: ${{ startsWith(github.ref, 'refs/tags/') }}
           prerelease: false
           args: ${{ matrix.args }}
