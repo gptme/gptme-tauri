@@ -1,12 +1,23 @@
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
+};
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
+
+const GPTME_SERVER_PORT: u16 = 5700;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+/// Check if a port is available
+fn is_port_available(port: u16) -> bool {
+    TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,6 +36,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
@@ -37,6 +49,35 @@ pub fn run() {
 
             // Spawn gptme-server with output capture
             tauri::async_runtime::spawn(async move {
+                // Check if port is available before starting
+                if !is_port_available(GPTME_SERVER_PORT) {
+                    log::error!(
+                        "Port {} is already in use. Another gptme-server instance may be running.",
+                        GPTME_SERVER_PORT
+                    );
+
+                    // Show dialog to inform user about port conflict
+                    let message = format!(
+                        "Cannot start gptme-server because port {} is already in use.\n\n\
+                        This usually means another gptme-server instance is already running.\n\n\
+                        Please stop the existing gptme-server process and restart this application.",
+                        GPTME_SERVER_PORT
+                    );
+
+                    MessageDialogBuilder::new(
+                        app_handle.dialog().clone(),
+                        "Port Conflict",
+                        message
+                    )
+                    .kind(MessageDialogKind::Error)
+                    .buttons(MessageDialogButtons::Ok)
+                    .show(|_result| {
+                        // Dialog closed, nothing to do
+                    });
+
+                    return;
+                }
+
                 // Determine CORS origin based on build mode
                 let cors_origin = if cfg!(debug_assertions) {
                     "http://localhost:5701" // Dev mode
@@ -44,7 +85,8 @@ pub fn run() {
                     "tauri://localhost" // Production mode
                 };
 
-                log::info!("Starting gptme-server with CORS origin: {}", cors_origin);
+                log::info!("Port {} is available, starting gptme-server with CORS origin: {}",
+                          GPTME_SERVER_PORT, cors_origin);
 
                 let sidecar_command = app_handle
                     .shell()
@@ -121,11 +163,22 @@ pub fn run() {
                     let child_ref = window.state::<Arc<Mutex<Option<CommandChild>>>>().clone();
                     if let Ok(mut child) = child_ref.lock() {
                         if let Some(process) = child.take() {
+                            log::info!("Attempting to terminate gptme-server process...");
                             match process.kill() {
-                                Ok(_) => log::info!("gptme-server process terminated successfully"),
-                                Err(e) => log::error!("Failed to terminate gptme-server: {}", e),
+                                Ok(_) => {
+                                    log::info!("gptme-server process terminated successfully");
+                                    // Give the process a moment to cleanup
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                },
+                                Err(e) => {
+                                    log::error!("Failed to terminate gptme-server: {}", e);
+                                }
                             }
+                        } else {
+                            log::warn!("No gptme-server process found to terminate");
                         }
+                    } else {
+                        log::error!("Failed to acquire lock on child process reference");
                     };
                 }
             }
