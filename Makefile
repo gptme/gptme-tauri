@@ -17,11 +17,16 @@ gptme-webui/dist: gptme-webui/.git
 	npm i && cd gptme-webui && npm i && npm run build
 
 gptme-server-build:
-	# appends a platform-specific suffix, required by tauri
-	mkdir -p bins
-	cd gptme && make build-server-exe && mv dist/gptme-server ../bins/gptme-server-$$(rustc -Vv | grep host | cut -f2 -d' ')
+	@if [ ! -d "bins" ]; then \
+		echo "Building gptme-server..."; \
+		mkdir -p bins; \
+		cd gptme && make build-server-exe && mv dist/gptme-server ../bins/gptme-server-$$(rustc -Vv | grep host | cut -f2 -d' '); \
+	else \
+		echo "bins folder already exists, skipping gptme-server build"; \
+	fi
 
-prebuild: gptme-webui/dist src-tauri/icons/icon.png gptme-server-build
+prebuild: gptme-webui/dist src-tauri/icons/icon.png
+	@$(MAKE) gptme-server-build
 
 precommit: format check
 
