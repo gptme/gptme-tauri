@@ -1,7 +1,12 @@
 build: prebuild
-	@# i need the nO_STRIP=true for some reason, otherwise:
-	@# > Error failed to bundle project: `failed to run linuxdeploy`"
-	NO_STRIP=true npm run tauri build
+	@# Set NO_STRIP=true on Linux to avoid "failed to run linuxdeploy" error
+	@if [ "$$(uname)" = "Linux" ]; then \
+		echo "Building on Linux, setting NO_STRIP=true..."; \
+		NO_STRIP=true npm run tauri build; \
+	else \
+		echo "Building on non-Linux platform..."; \
+		npm run tauri build; \
+	fi
 
 dev: prebuild
 	npm run tauri dev
