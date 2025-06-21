@@ -118,9 +118,30 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY" >> $GITHUB_ENV
           echo "Certificate imported successfully. Signing identity: $SIGNING_IDENTITY"
 
+      - name: Sign sidecar (macOS only)
+        if: matrix.platform == 'macos-latest' && (startsWith(github.ref, 'refs/tags/') || github.event.inputs.sign == 'true')
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "Warning: Apple signing identity not available. Skipping sidecar signing."
+            exit 0
+          fi
+
+          SIDECAR_PATH="bins/gptme-server-${{ matrix.arch }}-apple-darwin"
+          if [ ! -f "$SIDECAR_PATH" ]; then
+            echo "Error: Sidecar binary not found at $SIDECAR_PATH"
+            exit 1
+          fi
+
+          echo "Signing sidecar binary at $SIDECAR_PATH"
+          codesign --force -s "$APPLE_SIGNING_IDENTITY" --keychain build.keychain --deep "$SIDECAR_PATH"
+          echo "Sidecar binary signed successfully"
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
+          CI: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
