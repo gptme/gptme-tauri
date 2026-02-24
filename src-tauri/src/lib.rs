@@ -164,20 +164,25 @@ pub fn run() {
                 log::info!("Window close requested, cleaning up gptme-server...");
 
                 let arc = window.state::<ServerProcess>().0.clone();
-                if let Ok(mut guard) = arc.lock() {
-                    if let Some(child) = guard.take() {
-                        log::info!("Terminating gptme-server process...");
-                        match child.kill() {
-                            Ok(_) => {
-                                log::info!("gptme-server process terminated successfully");
-                            }
-                            Err(e) => {
-                                log::error!("Failed to terminate gptme-server: {}", e);
-                            }
-                        }
-                    } else {
-                        log::warn!("No gptme-server process found to terminate");
+                let mut guard = match arc.lock() {
+                    Ok(g) => g,
+                    Err(_) => {
+                        log::error!("Failed to acquire lock on server process");
+                        return;
                     }
+                };
+                if let Some(child) = guard.take() {
+                    log::info!("Terminating gptme-server process...");
+                    match child.kill() {
+                        Ok(_) => {
+                            log::info!("gptme-server process terminated successfully");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to terminate gptme-server: {}", e);
+                        }
+                    }
+                } else {
+                    log::warn!("No gptme-server process found to terminate");
                 }
             }
         })
