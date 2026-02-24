@@ -2,7 +2,7 @@
 
 A desktop application for [gptme](https://github.com/gptme/gptme) built with [Tauri](https://tauri.app/).
 
-This app packages the [gptme-webui](https://github.com/gptme/gptme-webui) frontend with a bundled `gptme-server` binary, providing a standalone desktop experience for gptme.
+This app packages the gptme web UI (bundled in the [gptme](https://github.com/gptme/gptme) repo) with a bundled `gptme-server` binary, providing a standalone desktop experience for gptme.
 
 ## Features
 
@@ -39,7 +39,6 @@ The built application will be in `src-tauri/target/release/bundle/`.
 
 ## Project Structure
 
-- `gptme/` - gptme source code (submodule)
-- `gptme-webui/` - Web UI frontend (submodule)
+- `gptme/` - gptme source code (submodule, includes webui at `gptme/webui/`)
 - `src-tauri/` - Tauri backend configuration
 - `bins/` - Contains the bundled gptme-server binary

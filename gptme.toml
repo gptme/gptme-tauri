@@ -3,7 +3,7 @@ files = [
     "Makefile",
     "package.json",
     "gptme/README.md",
-    "gptme-webui/README.md",
+    "gptme/webui/README.md",
     "src-tauri/Cargo.toml",
     "src-tauri/tauri.conf.json",
 ]
