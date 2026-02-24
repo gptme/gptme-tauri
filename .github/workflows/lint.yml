@@ -12,61 +12,36 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Rust nightly
-      run: |
-        rustup toolchain install nightly
-        rustup component add --toolchain nightly rustfmt
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
     - name: Check formatting
-      run: cd src-tauri; cargo fmt -- --check
+      run: cd src-tauri && cargo fmt -- --check
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
     - name: Install dependencies
       run: |
-        # From: https://tauri.app/v1/guides/getting-started/prerequisites
-        sudo apt update
-        sudo apt install libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+          librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
 
-    - name: Set up Rust nightly
-      run: |
-        rustup toolchain install nightly
-        rustup component add --toolchain nightly clippy
-
-    - name: Python setup
-      uses: actions/setup-python@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-        python-version: '3.11'
+        components: clippy
 
-    - name: Python cache
-      uses: actions/cache@v3
+    - name: Rust cache
+      uses: swatinem/rust-cache@v2
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install Poetry
-      run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          export PATH="$HOME/.local/bin:$PATH"
-
-    - name: Install node dependencies
-      run: npm install
-
-    - name: Prebuild
-      run: |
-        make prebuild
+        workspaces: './src-tauri -> target'
 
     - name: Run clippy
-      run: cd src-tauri; cargo clippy
+      run: cd src-tauri && cargo clippy -- -D warnings
