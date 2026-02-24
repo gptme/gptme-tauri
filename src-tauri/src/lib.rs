@@ -163,8 +163,8 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 log::info!("Window close requested, cleaning up gptme-server...");
 
-                let state = window.state::<ServerProcess>();
-                if let Ok(mut guard) = state.0.lock() {
+                let arc = window.state::<ServerProcess>().0.clone();
+                if let Ok(mut guard) = arc.lock() {
                     if let Some(child) = guard.take() {
                         log::info!("Terminating gptme-server process...");
                         match child.kill() {
