@@ -12,61 +12,57 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Rust nightly
-      run: |
-        rustup toolchain install nightly
-        rustup component add --toolchain nightly rustfmt
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
     - name: Check formatting
-      run: cd src-tauri; cargo fmt -- --check
+      run: cd src-tauri && cargo fmt -- --check
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
     - name: Install dependencies
       run: |
-        # From: https://tauri.app/v1/guides/getting-started/prerequisites
-        sudo apt update
-        sudo apt install libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+          librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup-3.0-dev patchelf
 
-    - name: Set up Rust nightly
-      run: |
-        rustup toolchain install nightly
-        rustup component add --toolchain nightly clippy
-
-    - name: Python setup
-      uses: actions/setup-python@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-        python-version: '3.11'
+        components: clippy
 
-    - name: Python cache
-      uses: actions/cache@v3
+    - name: Rust cache
+      uses: swatinem/rust-cache@v2
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+        workspaces: './src-tauri -> target'
 
-    - name: Install Poetry
+    - name: Create placeholder sidecar for tauri-build
       run: |
-          curl -sSL https://install.python-poetry.org | python3 -
-          export PATH="$HOME/.local/bin:$PATH"
+        # tauri-build checks that externalBin paths exist at compile time.
+        # Create a placeholder so clippy can run without a full prebuild.
+        mkdir -p bins
+        TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
+        touch "bins/gptme-server-${TRIPLE}"
 
-    - name: Install node dependencies
-      run: npm install
-
-    - name: Prebuild
+    - name: Create placeholder icons for tauri::generate_context!
       run: |
-        make prebuild
+        # tauri::generate_context! tries to open icon files at compile time.
+        # Create minimal valid PNG placeholders (1x1 pixel).
+        mkdir -p src-tauri/icons
+        # Minimal valid PNG (1x1 transparent pixel)
+        printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > src-tauri/icons/32x32.png
+        cp src-tauri/icons/32x32.png src-tauri/icons/128x128.png
+        cp src-tauri/icons/32x32.png "src-tauri/icons/128x128@2x.png"
+        # .icns and .ico can be empty files (not read as PNG)
+        touch src-tauri/icons/icon.icns
+        touch src-tauri/icons/icon.ico
 
     - name: Run clippy
-      run: cd src-tauri; cargo clippy
+      run: cd src-tauri && cargo clippy -- -D warnings

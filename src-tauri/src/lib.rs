@@ -21,6 +21,9 @@ fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
+/// Managed state holding the gptme-server child process for cleanup on exit.
+struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -44,9 +47,13 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
-            // Store child process PID for cleanup
-            let child_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
-            let child_pid_for_cleanup = child_pid.clone();
+            // Shared handle to the child process — written by the spawn task,
+            // read by the window-close handler for cleanup.
+            let child_handle: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+            let child_for_spawn = child_handle.clone();
+
+            // Register state so the window-close handler can access it.
+            app.manage(ServerProcess(child_handle));
 
             // Spawn gptme-server with output capture
             tauri::async_runtime::spawn(async move {
@@ -57,7 +64,6 @@ pub fn run() {
                         GPTME_SERVER_PORT
                     );
 
-                    // Show dialog to inform user about port conflict
                     let message = format!(
                         "Cannot start gptme-server because port {} is already in use.\n\n\
                         This usually means another gptme-server instance is already running.\n\n\
@@ -68,13 +74,11 @@ pub fn run() {
                     MessageDialogBuilder::new(
                         app_handle.dialog().clone(),
                         "Port Conflict",
-                        message
+                        message,
                     )
                     .kind(MessageDialogKind::Error)
                     .buttons(MessageDialogButtons::Ok)
-                    .show(|_result| {
-                        // Dialog closed, nothing to do
-                    });
+                    .show(|_result| {});
 
                     return;
                 }
@@ -86,8 +90,11 @@ pub fn run() {
                     "tauri://localhost" // Production mode
                 };
 
-                log::info!("Port {} is available, starting gptme-server with CORS origin: {}",
-                          GPTME_SERVER_PORT, cors_origin);
+                log::info!(
+                    "Port {} is available, starting gptme-server with CORS origin: {}",
+                    GPTME_SERVER_PORT,
+                    cors_origin
+                );
 
                 let sidecar_command = app_handle
                     .shell()
@@ -102,9 +109,9 @@ pub fn run() {
                             child.pid()
                         );
 
-                        // Store child process PID
-                        if let Ok(mut pid_ref) = child_pid.lock() {
-                            *pid_ref = Some(child.pid());
+                        // Store child process for later cleanup
+                        if let Ok(mut guard) = child_for_spawn.lock() {
+                            *guard = Some(child);
                         }
 
                         // Handle server output
@@ -150,37 +157,32 @@ pub fn run() {
                 }
             });
 
-            // Store child process PID in app state for cleanup
-            app.manage(child_pid_for_cleanup);
-
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Handle window close event to cleanup server
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 log::info!("Window close requested, cleaning up gptme-server...");
 
-                {
-                    let child_ref = window.state::<Arc<Mutex<Option<CommandChild>>>>().clone();
-                    if let Ok(mut child) = child_ref.lock() {
-                        if let Some(process) = child.take() {
-                            log::info!("Attempting to terminate gptme-server process...");
-                            match process.kill() {
-                                Ok(_) => {
-                                    log::info!("gptme-server process terminated successfully");
-                                    // Give the process a moment to cleanup
-                                    std::thread::sleep(std::time::Duration::from_millis(100));
-                                },
-                                Err(e) => {
-                                    log::error!("Failed to terminate gptme-server: {}", e);
-                                }
-                            }
-                        } else {
-                            log::warn!("No gptme-server process found to terminate");
+                let arc = window.state::<ServerProcess>().0.clone();
+                let mut guard = match arc.lock() {
+                    Ok(g) => g,
+                    Err(_) => {
+                        log::error!("Failed to acquire lock on server process");
+                        return;
+                    }
+                };
+                if let Some(child) = guard.take() {
+                    log::info!("Terminating gptme-server process...");
+                    match child.kill() {
+                        Ok(_) => {
+                            log::info!("gptme-server process terminated successfully");
                         }
-                    } else {
-                        log::error!("Failed to acquire lock on child process reference");
-                    };
+                        Err(e) => {
+                            log::error!("Failed to terminate gptme-server: {}", e);
+                        }
+                    }
+                } else {
+                    log::warn!("No gptme-server process found to terminate");
                 }
             }
         })
