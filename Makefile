@@ -17,9 +17,8 @@ dev: prebuild
 src-tauri/icons/icon.png:
 	npm run tauri icon "./public/logo.png"
 
-gptme-webui/dist: gptme-webui/.git
-	# TODO: probably a better way to do this
-	npm i && cd gptme-webui && npm i && npm run build
+gptme/webui/dist: gptme/.git
+	npm i && cd gptme/webui && npm i && npm run build
 
 gptme-server-build:
 	@if [ ! -d "bins" ]; then \
@@ -30,7 +29,7 @@ gptme-server-build:
 		echo "bins folder already exists, skipping gptme-server build"; \
 	fi
 
-prebuild: gptme-webui/dist src-tauri/icons/icon.png
+prebuild: gptme/webui/dist src-tauri/icons/icon.png
 	@$(MAKE) gptme-server-build
 
 precommit: format check
