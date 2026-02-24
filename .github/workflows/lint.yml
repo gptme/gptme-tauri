@@ -43,5 +43,13 @@ jobs:
       with:
         workspaces: './src-tauri -> target'
 
+    - name: Create placeholder sidecar for tauri-build
+      run: |
+        # tauri-build checks that externalBin paths exist at compile time.
+        # Create a placeholder so clippy can run without a full prebuild.
+        mkdir -p bins
+        TRIPLE=$(rustc -Vv | grep host | cut -f2 -d' ')
+        touch "bins/gptme-server-${TRIPLE}"
+
     - name: Run clippy
       run: cd src-tauri && cargo clippy -- -D warnings
