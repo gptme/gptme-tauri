@@ -32,5 +32,12 @@
       "icons/icon.ico"
     ],
     "externalBin": ["../bins/gptme-server"]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["gptme"]
+      }
+    }
   }
 }
