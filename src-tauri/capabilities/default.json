@@ -23,6 +23,7 @@
       ]
     },
     "shell:allow-open",
-    "log:default"
+    "log:default",
+    "deep-link:default"
   ]
 }

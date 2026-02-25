@@ -1,6 +1,7 @@
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{
     DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
 };
@@ -146,9 +147,76 @@ async fn start_server(
     Ok(GPTME_SERVER_PORT)
 }
 
+/// Extract auth code from a gptme:// deep-link URL and inject it into the webview.
+///
+/// Sets the URL hash to `#code=<hex>` and reloads the page, which triggers
+/// the webui's existing auth code exchange flow in ApiContext.
+fn handle_deep_link_urls(app: &tauri::AppHandle, urls: Vec<url::Url>) {
+    for url in &urls {
+        log::info!("Deep link received: {}", url);
+
+        // Parse gptme://pairing-complete?code=<hex> or gptme://callback?code=<hex>
+        if let Some(code) = url
+            .query_pairs()
+            .find(|(key, _)| key == "code")
+            .map(|(_, value)| value.to_string())
+        {
+            // Sanitize: only allow alphanumeric characters (codes should be hex)
+            let safe_code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+            if safe_code.is_empty() {
+                log::warn!("Auth code was empty after sanitization");
+                continue;
+            }
+
+            log::info!("Auth code extracted from deep link, injecting into webview");
+
+            if let Some(window) = app.get_webview_window("main") {
+                // Set URL hash with the auth code and reload the page.
+                // The webui's ApiContext checks window.location.hash on mount
+                // and automatically exchanges the code for a token via fleet.gptme.ai.
+                let js = format!(
+                    "window.location.hash = '#code={}'; window.location.reload();",
+                    safe_code
+                );
+                if let Err(e) = window.eval(&js) {
+                    log::error!("Failed to inject auth code into webview: {}", e);
+                }
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // On desktop (Linux/Windows), deep links spawn a new process instance.
+    // The single-instance plugin with deep-link feature catches these and
+    // forwards the URL to the already-running instance instead.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            log::info!("Single-instance callback: argv={:?}", argv);
+
+            // On Linux/Windows, deep-link URLs arrive as CLI arguments
+            let urls: Vec<url::Url> = argv
+                .iter()
+                .filter_map(|arg| url::Url::parse(arg).ok())
+                .filter(|url| url.scheme() == "gptme")
+                .collect();
+
+            if !urls.is_empty() {
+                handle_deep_link_urls(app, urls);
+            }
+
+            // Focus the main window when another instance tries to open
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -163,6 +231,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             get_server_status,
             start_server,
@@ -170,6 +239,29 @@ pub fn run() {
         ])
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
+
+            // Register deep-link schemes at runtime (needed for dev on Linux/Windows)
+            #[cfg(desktop)]
+            if cfg!(debug_assertions) {
+                if let Err(e) = app.deep_link().register_all() {
+                    log::warn!("Failed to register deep-link schemes: {}", e);
+                } else {
+                    log::info!("Deep-link scheme 'gptme://' registered for development");
+                }
+            }
+
+            // Check if the app was launched via a deep link
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                log::info!("App launched with deep link URLs: {:?}", urls);
+                handle_deep_link_urls(app.handle(), urls);
+            }
+
+            // Listen for deep-link events (macOS sends these to the running app)
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                log::info!("Deep link event received: {:?}", event.urls());
+                handle_deep_link_urls(&handle, event.urls().to_vec());
+            });
 
             let app_handle = app.handle().clone();
 
