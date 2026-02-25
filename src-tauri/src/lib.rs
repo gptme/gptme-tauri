@@ -259,8 +259,9 @@ pub fn run() {
             // Listen for deep-link events (macOS sends these to the running app)
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
-                log::info!("Deep link event received: {:?}", event.urls());
-                handle_deep_link_urls(&handle, event.urls().to_vec());
+                let urls = event.urls();
+                log::info!("Deep link event received: {:?}", urls);
+                handle_deep_link_urls(&handle, urls);
             });
 
             let app_handle = app.handle().clone();
