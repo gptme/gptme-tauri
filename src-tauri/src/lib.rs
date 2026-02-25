@@ -10,12 +10,6 @@ use tauri_plugin_shell::ShellExt;
 
 const GPTME_SERVER_PORT: u16 = 5700;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 /// Check if a port is available
 fn is_port_available(port: u16) -> bool {
     TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
@@ -23,6 +17,127 @@ fn is_port_available(port: u16) -> bool {
 
 /// Managed state holding the gptme-server child process for cleanup on exit.
 struct ServerProcess(Arc<Mutex<Option<CommandChild>>>);
+
+#[derive(serde::Serialize)]
+struct ServerStatus {
+    running: bool,
+    port: u16,
+    port_available: bool,
+}
+
+/// Get the current status of the local gptme-server.
+#[tauri::command]
+fn get_server_status(state: tauri::State<'_, ServerProcess>) -> ServerStatus {
+    let running = state.0.lock().map(|guard| guard.is_some()).unwrap_or(false);
+    ServerStatus {
+        running,
+        port: GPTME_SERVER_PORT,
+        port_available: is_port_available(GPTME_SERVER_PORT),
+    }
+}
+
+/// Stop the local gptme-server process.
+#[tauri::command]
+fn stop_server(state: tauri::State<'_, ServerProcess>) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+    if let Some(child) = guard.take() {
+        log::info!("Stopping gptme-server via IPC command");
+        child.kill().map_err(|e| format!("Kill error: {}", e))?;
+        log::info!("gptme-server stopped successfully");
+        Ok(())
+    } else {
+        Err("No server process running".to_string())
+    }
+}
+
+/// Start the local gptme-server process (if not already running).
+#[tauri::command]
+async fn start_server(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ServerProcess>,
+) -> Result<u16, String> {
+    // Check if already running
+    {
+        let guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        if guard.is_some() {
+            return Err("Server is already running".to_string());
+        }
+    }
+
+    if !is_port_available(GPTME_SERVER_PORT) {
+        return Err(format!("Port {} is already in use", GPTME_SERVER_PORT));
+    }
+
+    let cors_origin = if cfg!(debug_assertions) {
+        "http://localhost:5701"
+    } else {
+        "tauri://localhost"
+    };
+
+    log::info!(
+        "Starting gptme-server on port {} with CORS origin: {}",
+        GPTME_SERVER_PORT,
+        cors_origin
+    );
+
+    let sidecar_command = app
+        .shell()
+        .sidecar("gptme-server")
+        .map_err(|e| format!("Sidecar error: {}", e))?
+        .args(["--cors-origin", cors_origin]);
+
+    let (mut rx, child) = sidecar_command
+        .spawn()
+        .map_err(|e| format!("Spawn error: {}", e))?;
+
+    log::info!(
+        "gptme-server started successfully with PID: {}",
+        child.pid()
+    );
+
+    // Store child process
+    {
+        let mut guard = state.0.lock().map_err(|e| format!("Lock error: {}", e))?;
+        *guard = Some(child);
+    }
+
+    // Handle server output in background
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                tauri_plugin_shell::process::CommandEvent::Stdout(data) => {
+                    let output = String::from_utf8_lossy(&data);
+                    for line in output.lines() {
+                        if !line.trim().is_empty() {
+                            log::info!("[gptme-server] {}", line.trim());
+                        }
+                    }
+                }
+                tauri_plugin_shell::process::CommandEvent::Stderr(data) => {
+                    let output = String::from_utf8_lossy(&data);
+                    for line in output.lines() {
+                        if !line.trim().is_empty() {
+                            log::warn!("[gptme-server] {}", line.trim());
+                        }
+                    }
+                }
+                tauri_plugin_shell::process::CommandEvent::Error(error) => {
+                    log::error!("[gptme-server] Process error: {}", error);
+                }
+                tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                    log::warn!(
+                        "[gptme-server] Process terminated with code: {:?}",
+                        payload.code
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(GPTME_SERVER_PORT)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,7 +156,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            get_server_status,
+            start_server,
+            stop_server,
+        ])
         .setup(|app| {
             log::info!("Starting gptme-tauri application");
 
