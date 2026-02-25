@@ -101,6 +101,9 @@ async fn start_server(
         *guard = Some(child);
     }
 
+    // Clone the Arc so the async task can clear state when server terminates
+    let state_arc = state.0.clone();
+
     // Handle server output in background
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -129,6 +132,10 @@ async fn start_server(
                         "[gptme-server] Process terminated with code: {:?}",
                         payload.code
                     );
+                    // Clear state so get_server_status correctly reports not running
+                    if let Ok(mut guard) = state_arc.lock() {
+                        *guard = None;
+                    }
                     break;
                 }
                 _ => {}
@@ -233,6 +240,9 @@ pub fn run() {
                             *guard = Some(child);
                         }
 
+                        // Clone the Arc so the async task can clear state when server terminates
+                        let child_for_output = child_for_spawn.clone();
+
                         // Handle server output
                         tauri::async_runtime::spawn(async move {
                             while let Some(event) = rx.recv().await {
@@ -263,6 +273,10 @@ pub fn run() {
                                             "[gptme-server] Process terminated with code: {:?}",
                                             payload.code
                                         );
+                                        // Clear state so get_server_status correctly reports not running
+                                        if let Ok(mut guard) = child_for_output.lock() {
+                                            *guard = None;
+                                        }
                                         break;
                                     }
                                     _ => {}
