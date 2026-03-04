@@ -1,5 +1,8 @@
 # gptme-tauri
 
+> [!WARNING]
+> This repo is **ARCHIVED** and has been merged into the main [gptme](https://github.com/gptme/gptme) repo. All future development will happen there.
+
 A desktop application for [gptme](https://github.com/gptme/gptme) built with [Tauri](https://tauri.app/).
 
 This app packages the gptme web UI (bundled in the [gptme](https://github.com/gptme/gptme) repo) with a bundled `gptme-server` binary, providing a standalone desktop experience for gptme.
